@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>پنل مدیریت</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- هدر پنل مدیریت -->
+    <header class="header">
+        <button class="menu-btn" id="adminInfoBtn">اطلاعات مدیر</button>
+        <button class="btn btn-danger" id="adminLogoutBtn" style="width: auto; padding: 6px 14px; margin: 0; font-size: 12px;">خروج</button>
+        <button class="user-badge" id="addProductBtn" style="font-size: 18px; padding: 4px 14px;">+</button>
+    </header>
+
+    <!-- مدیریت محصولات -->
+    <main class="container" style="max-width: 500px; margin: 0 auto;">
+        <h2 style="font-size: 15px; text-align: center; margin-bottom: 15px; color: #60a5fa;">مدیریت محصولات</h2>
+        <div id="adminProductsList" style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="text-align: center; color: #94a3b8; font-size: 13px;">در حال دریافت محصولات...</div>
+        </div>
+    </main>
+
+    <!-- دکمه‌های شناور پایین صفحه -->
+    <div style="position: fixed; bottom: 15px; left: 15px; right: 15px; display: flex; justify-content: space-between; pointer-events: none; z-index: 90;">
+        <button class="floating-btn" id="usersListBtn" style="position: static; pointer-events: auto;">کاربران</button>
+        <button class="floating-btn" id="messagesListBtn" style="position: static; pointer-events: auto;">پیام‌ها</button>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // بررسی دسترسی مدیر
+            if (!isAdminLoggedIn) {
+                showCustomAlert('عدم دسترسی', 'شما به این صفحه دسترسی ندارید.', () => {
+                    window.location.href = 'index.html';
+                });
+                return;
+            }
+
+            // مسدود کردن دکمه بازگشت مرورگر / گوشی
+            history.pushState(null, null, location.href);
+            window.onpopstate = function () {
+                history.pushState(null, null, location.href);
+                showCustomAlert('هشدار', 'برای خروج از پنل مدیریت لطفاً از دکمه خروج بالای صفحه استفاده کنید.');
+            };
+
+            // خروج از پنل مدیریت
+            document.getElementById('adminLogoutBtn').addEventListener('click', () => {
+                showCustomConfirm('خروج از پنل', 'آیا می‌خواهید از پنل مدیریت خارج شوید؟', () => {
+                    sessionStorage.removeItem('adminLoggedIn');
+                    window.location.href = 'index.html';
+                });
+            });
+
+            // بارگذاری محصولات
+            loadAdminProducts();
+
+            // دکمه اطلاعات مدیر
+            document.getElementById('adminInfoBtn').addEventListener('click', openAdminConfigPopup);
+
+            // دکمه + (افزودن محصول)
+            document.getElementById('addProductBtn').addEventListener('click', openAddProductChoicePopup);
+
+            // دکمه لیست کاربران
+            document.getElementById('usersListBtn').addEventListener('click', openUsersListPopup);
+
+            // دکمه لیست پیام‌ها
+            document.getElementById('messagesListBtn').addEventListener('click', openMessagesListPopup);
+        });
+
+        // بارگذاری لیست محصولات
+        async function loadAdminProducts() {
+            const listContainer = document.getElementById('adminProductsList');
+            try {
+                const res = await fetch(`${API_FIREBASE}/products`);
+                if (!res.ok) {
+                    listContainer.innerHTML = '<div style="text-align: center; color: #94a3b8; font-size: 13px;">محصولی وجود ندارد.</div>';
+                    return;
+                }
+                const data = await res.json();
+                const docs = data.documents || [];
+
+                if (docs.length === 0) {
+                    listContainer.innerHTML = '<div style="text-align: center; color: #94a3b8; font-size: 13px;">محصولی وجود ندارد.</div>';
+                    return;
+                }
+
+                listContainer.innerHTML = '';
+                docs.forEach(doc => {
+                    const p = parseFirestoreDoc(doc);
+                    const item = document.createElement('div');
+                    item.style.cssText = 'background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 10px; display: flex; align-items: center; justify-content: space-between;';
+
+                    item.innerHTML = `
+                        <button class="btn btn-danger delete-btn" style="width: auto; padding: 6px 10px; margin: 0; font-size: 12px;">🗑️</button>
+                        <div style="flex: 1; text-align: center; padding: 0 10px; font-size: 13px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            ${p.title}
+                        </div>
+                        <button class="btn btn-secondary edit-btn" style="width: auto; padding: 6px 10px; margin: 0; font-size: 12px;">✏️</button>
+                    `;
+
+                    item.querySelector('.delete-btn').addEventListener('click', () => {
+                        showCustomConfirm('حذف محصول', `آیا از حذف "${p.title}" اطمینان دارید؟`, async () => {
+                            await fetch(`${API_FIREBASE}/products/${p.id}`, { method: 'DELETE' });
+                            loadAdminProducts();
+                            showCustomAlert('موفقیت', 'محصول با موفقیت حذف شد.');
+                        });
+                    });
+
+                    item.querySelector('.edit-btn').addEventListener('click', () => {
+                        openProductFormPopup(p.type, p);
+                    });
+
+                    listContainer.appendChild(item);
+                });
+            } catch (err) {
+                listContainer.innerHTML = '<div style="text-align: center; color: #f87171; font-size: 13px;">خطا در دریافت لیست محصولات.</div>';
+            }
+        }
+
+        // انتخاب نوع محصول جدید
+        function openAddProductChoicePopup() {
+            const overlay = document.createElement('div');
+            overlay.className = 'popup-overlay active';
+            overlay.innerHTML = `
+                <div class="popup-content">
+                    <div class="popup-header">
+                        <span class="popup-title">انتخاب نوع محصول</span>
+                        <button class="close-btn">&times;</button>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;">
+                        <button class="btn btn-primary add-virtual-btn">اضافه کردن محصول مجازی</button>
+                        <button class="btn btn-secondary add-game-btn">اضافه کردن محصول بازی</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            const closePopup = () => {
+                overlay.classList.remove('active');
+                setTimeout(() => overlay.remove(), 300);
+            };
+
+            overlay.querySelector('.close-btn').addEventListener('click', closePopup);
+            overlay.querySelector('.add-virtual-btn').addEventListener('click', () => {
+                closePopup();
+                openProductFormPopup('virtual');
+            });
+            overlay.querySelector('.add-game-btn').addEventListener('click', () => {
+                closePopup();
+                openProductFormPopup('game');
+            });
+        }
+
+        // فرم افزودن/ویرایش محصول
+        function openProductFormPopup(type, editData = null) {
+            const isEdit = !!editData;
+            const overlay = document.createElement('div');
+            overlay.className = 'popup-overlay active';
+
+            overlay.innerHTML = `
+                <div class="popup-content">
+                    <div class="popup-header">
+                        <span class="popup-title">${isEdit ? 'ویرایش محصول' : (type === 'virtual' ? 'محصول مجازی جدید' : 'محصول بازی جدید')}</span>
+                        <button class="close-btn">&times;</button>
+                    </div>
+                    <form id="productForm">
+                        <div class="form-group">
+                            <label>نام محصول</label>
+                            <input type="text" id="pTitle" class="form-control" value="${editData ? editData.title : ''}" required>
+                        </div>
+                        <div class="form-group">
+                            <label>قیمت اصلی (تومان)</label>
+                            <input type="number" id="pOriginalPrice" class="form-control" value="${editData ? editData.originalPrice : ''}" required>
+                        </div>
+                        <div class="form-group">
+                            <label>قیمت آفر (اختیاری)</label>
+                            <input type="number" id="pOfferPrice" class="form-control" value="${editData && editData.offerPrice ? editData.offerPrice : ''}">
+                        </div>
+                        ${type === 'virtual' ? `
+                            <div class="form-group">
+                                <label>تعداد ممبر/فالور</label>
+                                <input type="text" id="pMembers" class="form-control" value="${editData && editData.membersCount ? editData.membersCount : ''}" required>
+                            </div>
+                        ` : `
+                            <div class="form-group">
+                                <label>لول بازی</label>
+                                <input type="text" id="pGameLevel" class="form-control" value="${editData && editData.gameLevel ? editData.gameLevel : ''}" required>
+                            </div>
+                        `}
+                        <div class="form-group">
+                            <label>شماره کارت صاحب محصول</label>
+                            <input type="text" id="pCardNumber" class="form-control" value="${editData ? editData.cardNumber : ''}" required>
+                        </div>
+                        <div class="form-group">
+                            <label>نام شماره کارت</label>
+                            <input type="text" id="pCardName" class="form-control" value="${editData ? editData.cardName : ''}" required>
+                        </div>
+                        <div class="form-group">
+                            <label>آیدی روبیکای صاحب محصول</label>
+                            <input type="text" id="pRubikaId" class="form-control" value="${editData ? editData.rubikaId : ''}" required>
+                        </div>
+                        <div class="form-group">
+                            <label>توضیحات اضافی</label>
+                            <textarea id="pDesc" class="form-control" rows="2">${editData && editData.description ? editData.description : ''}</textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>عکس اصلی محصول ${isEdit ? '(در صورت تغییر انتخابی)' : ''}</label>
+                            <input type="file" id="pMainImg" class="form-control" accept="image/*" ${isEdit ? '' : 'required'}>
+                        </div>
+                        <div class="form-group">
+                            <label>عکس‌های اضافی (چندتایی)</label>
+                            <input type="file" id="pExtraImgs" class="form-control" accept="image/*" multiple>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="saveProductBtn">${isEdit ? 'ثبت تغییرات' : 'ذخیره محصول'}</button>
+                    </form>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            const closePopup = () => {
+                overlay.classList.remove('active');
+                setTimeout(() => overlay.remove(), 300);
+            };
+
+            overlay.querySelector('.close-btn').addEventListener('click', closePopup);
+
+            overlay.querySelector('#productForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const saveBtn = document.getElementById('saveProductBtn');
+                saveBtn.disabled = true;
+                saveBtn.innerText = 'در حال پردازش...';
+
+                try {
+                    let mainImageUrl = editData ? editData.mainImage : '';
+                    const mainImgFile = document.getElementById('pMainImg').files[0];
+                    if (mainImgFile) {
+                        mainImageUrl = await uploadToImgBB(mainImgFile);
+                    }
+
+                    let extraImagesUrls = editData && editData.extraImages ? editData.extraImages : [];
+                    const extraFiles = document.getElementById('pExtraImgs').files;
+                    if (extraFiles.length > 0) {
+                        const newExtraUrls = [];
+                        for (let file of extraFiles) {
+                            const url = await uploadToImgBB(file);
+                            newExtraUrls.push(url);
+                        }
+                        extraImagesUrls = isEdit ? extraImagesUrls.concat(newExtraUrls) : newExtraUrls;
+                    }
+
+                    const productId = isEdit ? editData.id : Date.now().toString();
+                    const productPayload = {
+                        type: type,
+                        title: document.getElementById('pTitle').value.trim(),
+                        originalPrice: document.getElementById('pOriginalPrice').value.trim(),
+                        offerPrice: document.getElementById('pOfferPrice').value.trim(),
+                        cardNumber: document.getElementById('pCardNumber').value.trim(),
+                        cardName: document.getElementById('pCardName').value.trim(),
+                        rubikaId: document.getElementById('pRubikaId').value.trim(),
+                        description: document.getElementById('pDesc').value.trim(),
+                        mainImage: mainImageUrl,
+                        extraImages: extraImagesUrls
+                    };
+
+                    if (type === 'virtual') {
+                        productPayload.membersCount = document.getElementById('pMembers').value.trim();
+                    } else {
+                        productPayload.gameLevel = document.getElementById('pGameLevel').value.trim();
+                    }
+
+                    await fetch(`${API_FIREBASE}/products/${productId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(buildFirestoreFields(productPayload))
+                    });
+
+                    closePopup();
+                    loadAdminProducts();
+                    showCustomAlert('موفقیت', isEdit ? 'محصول بروزرسانی شد.' : 'محصول جدید اضافه شد.');
+                } catch (err) {
+                    showCustomAlert('خطا', 'مشکلی در ذخیره‌سازی محصول ایجاد شد.');
+                } finally {
+                    saveBtn.disabled = false;
+                }
+            });
+        }
+
+        // پاپ‌آپ ویرایش اطلاعات مدیر
+        function openAdminConfigPopup() {
+            const overlay = document.createElement('div');
+            overlay.className = 'popup-overlay active';
+            overlay.innerHTML = `
+                <div class="popup-content">
+                    <div class="popup-header">
+                        <span class="popup-title">ویرایش اطلاعات مدیر</span>
+                        <button class="close-btn">&times;</button>
+                    </div>
+                    <form id="adminConfigForm">
+                        <div class="form-group">
+                            <label>نام کاربری جدید مدیر (بیشتر از ۴ حرف)</label>
+                            <input type="text" id="newAdminUser" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label>رمز عبور جدید مدیر (بیشتر از ۴ حرف)</label>
+                            <input type="password" id="newAdminPass" class="form-control" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">تغییر اطلاعات</button>
+                    </form>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            const closePopup = () => {
+                overlay.classList.remove('active');
+                setTimeout(() => overlay.remove(), 300);
+            };
+
+            overlay.querySelector('.close-btn').addEventListener('click', closePopup);
+
+            overlay.querySelector('#adminConfigForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const u = document.getElementById('newAdminUser').value.trim().toLowerCase();
+                const p = document.getElementById('newAdminPass').value;
+
+                if (u.length <= 4 || p.length <= 4) {
+                    return showCustomAlert('خطا', 'نام کاربری و رمز عبور باید بیشتر از ۴ حرف باشند.');
+                }
+
+                                try {
+                    await fetch(`${API_FIREBASE}/adminInfo/config`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(buildFirestoreFields({ username: u, password: p }))
+                    });
+
+                    closePopup();
+                    showCustomAlert('موفقیت', 'اطلاعات مدیر با موفقیت تغییر یافت.');
+                } catch (err) {
+                    showCustomAlert('خطا', 'مشکلی در بروزرسانی اطلاعات پیش آمد.');
+                }
+            });
+        }
+
+        // پاپ‌آپ مشاهده لیست کاربران
+        async function openUsersListPopup() {
+            const overlay = document.createElement('div');
+            overlay.className = 'popup-overlay active';
+            overlay.innerHTML = `
+                <div class="popup-content">
+                    <div class="popup-header">
+                        <span class="popup-title">لیست کاربران ثبت‌نامی</span>
+                        <button class="close-btn">&times;</button>
+                    </div>
+                    <div id="usersContainer" style="display: flex; flex-direction: column; gap: 10px; max-height: 350px; overflow-y: auto;">
+                        <div style="text-align: center; color: #94a3b8; font-size: 12px;">در حال بارگذاری...</div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            const closePopup = () => {
+                overlay.classList.remove('active');
+                setTimeout(() => overlay.remove(), 300);
+            };
+
+            overlay.querySelector('.close-btn').addEventListener('click', closePopup);
+
+            const usersContainer = overlay.querySelector('#usersContainer');
+            try {
+                const res = await fetch(`${API_FIREBASE}/users`);
+                if (!res.ok) {
+                    usersContainer.innerHTML = '<div style="text-align: center; color: #94a3b8; font-size: 12px;">کاربری یافت نشد.</div>';
+                    return;
+                }
+                const data = await res.json();
+                const docs = data.documents || [];
+
+                if (docs.length === 0) {
+                    usersContainer.innerHTML = '<div style="text-align: center; color: #94a3b8; font-size: 12px;">کاربری یافت نشد.</div>';
+                    return;
+                }
+
+                usersContainer.innerHTML = '';
+                docs.forEach(doc => {
+                    const u = parseFirestoreDoc(doc);
+                    const card = document.createElement('div');
+                    card.style.cssText = 'background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px; font-size: 12px; line-height: 1.6;';
+                    card.innerHTML = `
+                        <div><b>نام:</b> ${u.name || '-'}</div>
+                        <div><b>نام کاربری:</b> ${u.username || '-'}</div>
+                        <div><b>رمز عبور:</b> ${u.password || '-'}</div>
+                    `;
+                    usersContainer.appendChild(card);
+                });
+            } catch (err) {
+                usersContainer.innerHTML = '<div style="text-align: center; color: #f87171; font-size: 12px;">خطا در دریافت کاربران.</div>';
+            }
+        }
+
+        // پاپ‌آپ مشاهده لیست پیام‌های کاربران
+        async function openMessagesListPopup() {
+            const overlay = document.createElement('div');
+            overlay.className = 'popup-overlay active';
+            overlay.innerHTML = `
+                <div class="popup-content">
+                    <div class="popup-header">
+                        <span class="popup-title">پیام‌های کاربران</span>
+                        <button class="close-btn">&times;</button>
+                    </div>
+                    <div id="chatsContainer" style="display: flex; flex-direction: column; gap: 10px; max-height: 350px; overflow-y: auto;">
+                        <div style="text-align: center; color: #94a3b8; font-size: 12px;">در حال دریافت گفتگوها...</div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            const closePopup = () => {
+                overlay.classList.remove('active');
+                setTimeout(() => overlay.remove(), 300);
+            };
+
+            overlay.querySelector('.close-btn').addEventListener('click', closePopup);
+
+            const chatsContainer = overlay.querySelector('#chatsContainer');
+            try {
+                const res = await fetch(`${API_FIREBASE}/chats`);
+                if (!res.ok) {
+                    chatsContainer.innerHTML = '<div style="text-align: center; color: #94a3b8; font-size: 12px;">پیامی یافت نشد.</div>';
+                    return;
+                }
+                const data = await res.json();
+                const documents = data.documents || [];
+
+                if (documents.length === 0) {
+                    chatsContainer.innerHTML = '<div style="text-align: center; color: #94a3b8; font-size: 12px;">پیامی یافت نشد.</div>';
+                    return;
+                }
+
+                chatsContainer.innerHTML = '';
+                documents.forEach(doc => {
+                    const username = doc.name.split('/').pop();
+                    const card = document.createElement('div');
+                    card.style.cssText = 'background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; cursor: pointer;';
+                    card.innerHTML = `
+                        <div>💬 گفتگو با <b>${username}</b></div>
+                        <button class="btn btn-primary" style="width: auto; padding: 4px 10px; margin: 0; font-size: 11px;">مشاهده</button>
+                    `;
+                    card.addEventListener('click', () => {
+                        closePopup();
+                        openAdminChatPopup(username);
+                    });
+                    chatsContainer.appendChild(card);
+                });
+            } catch (err) {
+                chatsContainer.innerHTML = '<div style="text-align: center; color: #f87171; font-size: 12px;">خطا در دریافت پیام‌ها.</div>';
+            }
+        }
+
+        // پاپ‌آپ گفتگو و پاسخ‌گویی به کاربر خاص
+        function openAdminChatPopup(targetUsername) {
+            const overlay = document.createElement('div');
+            overlay.className = 'popup-overlay active';
+            let selectedAdminFile = null;
+
+            overlay.innerHTML = `
+                <div class="popup-content" style="max-width: 420px;">
+                    <div class="popup-header">
+                        <span class="popup-title">پاسخ به ${targetUsername}</span>
+                        <button class="close-btn">&times;</button>
+                    </div>
+                    <div class="chat-box" id="adminChatBox" style="min-height: 250px; max-height: 300px;">
+                        <div style="text-align: center; color: #94a3b8; font-size: 12px;">در حال بارگذاری...</div>
+                    </div>
+                    <form id="adminReplyForm" style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+                        <textarea id="adminReplyText" class="form-control" rows="2" placeholder="پاسخ شما..." style="resize:none;"></textarea>
+                        <div style="display: flex; gap: 8px;">
+                            <label for="adminImgInput" class="btn btn-secondary" style="margin: 0; flex: 1; font-size: 11px;">📷 عکس</label>
+                            <input type="file" id="adminImgInput" accept="image/*" style="display: none;">
+                            <button type="submit" class="btn btn-primary" style="margin: 0; flex: 1;" id="adminSendBtn">ارسال</button>
+                        </div>
+                        <div id="adminImgText" style="font-size: 10px; color: #4ade80; text-align: center;"></div>
+                    </form>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            const closePopup = () => {
+                overlay.classList.remove('active');
+                setTimeout(() => overlay.remove(), 300);
+            };
+
+            overlay.querySelector('.close-btn').addEventListener('click', closePopup);
+
+            const loadAdminChat = async () => {
+                const box = overlay.querySelector('#adminChatBox');
+                try {
+                    const res = await fetch(`${API_FIREBASE}/chats/${targetUsername}/messages`);
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    const docs = data.documents || [];
+
+                    const messages = docs.map(doc => parseFirestoreDoc(doc))
+                                        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+                    box.innerHTML = '';
+                    messages.forEach(msg => {
+                        const isUser = msg.sender === targetUsername;
+                        const msgDiv = document.createElement('div');
+                        msgDiv.className = `msg ${isUser ? 'user' : 'admin'}`;
+                        let content = `<div>${msg.text || ''}</div>`;
+                        if (msg.imageUrl) content += `<img src="${msg.imageUrl}">`;
+                        msgDiv.innerHTML = content;
+                        box.appendChild(msgDiv);
+                    });
+                    box.scrollTop = box.scrollHeight;
+                } catch (e) {}
+            };
+
+            loadAdminChat();
+
+            overlay.querySelector('#adminImgInput').addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    selectedAdminFile = e.target.files[0];
+                    overlay.querySelector('#adminImgText').innerText = selectedAdminFile.name;
+                }
+            });
+
+            overlay.querySelector('#adminReplyForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const txt = overlay.querySelector('#adminReplyText').value.trim();
+                const sendBtn = overlay.querySelector('#adminSendBtn');
+
+                if (!txt && !selectedAdminFile) return;
+
+                sendBtn.disabled = true;
+                sendBtn.innerText = '...';
+
+                try {
+                    let imgUrl = '';
+                    if (selectedAdminFile) {
+                        imgUrl = await uploadToImgBB(selectedAdminFile);
+                    }
+
+                    const messageId = Date.now().toString();
+                    const msgData = {
+                        sender: 'admin',
+                        text: txt,
+                        imageUrl: imgUrl,
+                        timestamp: Date.now()
+                    };
+
+                    await fetch(`${API_FIREBASE}/chats/${targetUsername}/messages/${messageId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(buildFirestoreFields(msgData))
+                    });
+
+                    overlay.querySelector('#adminReplyText').value = '';
+                    overlay.querySelector('#adminImgInput').value = '';
+                    overlay.querySelector('#adminImgText').innerText = '';
+                    selectedAdminFile = null;
+
+                    loadAdminChat();
+                } catch (err) {
+                    showCustomAlert('خطا', 'مشکلی در ارسال پاسخ رخ داد.');
+                } finally {
+                    sendBtn.disabled = false;
+                    sendBtn.innerText = 'ارسال';
+                }
+            });
+        }
+    </script>
+</body>
+</html>                                                       
