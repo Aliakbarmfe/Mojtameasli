@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>فروشگاه موبایل</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- هدر بالای صفحه -->
+    <header class="header">
+        <button class="menu-btn" id="menuBtn">⋮</button>
+        <button class="user-badge" id="userAuthBtn">ورود</button>
+    </header>
+
+    <!-- کشوی جانبی (منوی ۳ نقطه) -->
+    <div class="drawer-overlay" id="drawerOverlay"></div>
+    <aside class="drawer" id="sideDrawer">
+        <div style="font-size: 16px; font-weight: bold; margin-bottom: 10px; color: #60a5fa;">منوی اصلی</div>
+        <div class="drawer-item" id="buildSiteItem">متن ساخت سایت</div>
+        <div class="drawer-item" id="adminLoginItem">ورود مدیر</div>
+        <div class="drawer-item logout" id="drawerLogoutItem" style="display: none;">خروج از اکانت</div>
+    </aside>
+
+    <!-- لیست محصولات -->
+    <main class="container">
+        <div class="products-grid" id="productsGrid">
+            <!-- محصولات به‌صورت پویا از فایربیس بارگذاری می‌شوند -->
+        </div>
+    </main>
+
+    <!-- دکمه شناور پشتیبانی -->
+    <div class="floating-btn" id="floatingSupportBtn">پشتیبانی</div>
+
+    <!-- اسکریپت‌های پروژه -->
+    <script src="app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            loadProducts();
+
+            // گزینه ورود مدیر از کشو
+            document.getElementById('adminLoginItem').addEventListener('click', () => {
+                toggleDrawer(false);
+                openAdminLoginPopup();
+            });
+        });
+
+        // بارگذاری لیست محصولات از فایربیس
+        async function loadProducts() {
+            const grid = document.getElementById('productsGrid');
+            grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 20px;">در حال دریافت محصولات...</div>';
+
+            try {
+                const res = await fetch(`${API_FIREBASE}/products`);
+                if (!res.ok) {
+                    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #f87171;">هنوز هیچ محصولی ثبت نشده است.</div>';
+                    return;
+                }
+
+                const data = await res.json();
+                const documents = data.documents || [];
+
+                if (documents.length === 0) {
+                    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #94a3b8;">محصولی موجود نیست.</div>';
+                    return;
+                }
+
+                grid.innerHTML = '';
+                documents.forEach(doc => {
+                    const p = parseFirestoreDoc(doc);
+                    const hasOffer = p.offerPrice && p.offerPrice.trim() !== '';
+
+                    const card = document.createElement('div');
+                    card.className = 'product-card';
+                    card.innerHTML = `
+                        <img src="${p.mainImage}" alt="${p.title}">
+                        <div class="product-title">${p.title}</div>
+                        <div class="price-container">
+                            <span class="price-original ${hasOffer ? 'has-offer' : ''}">${p.originalPrice} تومان</span>
+                            ${hasOffer ? `<span class="price-offer">${p.offerPrice} تومان</span>` : ''}
+                        </div>
+                    `;
+
+                    card.addEventListener('click', () => openProductDetailsPopup(p));
+                    grid.appendChild(card);
+                });
+            } catch (err) {
+                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #f87171;">خطا در دریافت لیست محصولات</div>';
+            }
+        }
+
+        // پاپ‌آپ جزئیات محصول
+        function openProductDetailsPopup(p) {
+            const overlay = document.createElement('div');
+            overlay.className = 'popup-overlay active';
+
+            let imagesList = [p.mainImage];
+            if (p.extraImages && Array.isArray(p.extraImages)) {
+                imagesList = imagesList.concat(p.extraImages);
+            }
+
+            const imagesHtml = imagesList.map(img => `<img src="${img}">`).join('');
+
+            overlay.innerHTML = `
+                <div class="popup-content">
+                    <div class="popup-header">
+                        <span class="popup-title">${p.title}</span>
+                        <button class="close-btn">&times;</button>
+                    </div>
+                    <div class="slider-container">
+                        ${imagesHtml}
+                    </div>
+                    <div style="margin-bottom: 15px; font-size: 13px; color: #cbd5e1; line-height: 1.6;">
+                        ${p.type === 'game' ? `<div><b>لول بازی:</b> ${p.gameLevel || '-'}</div>` : `<div><b>تعداد ممبر/فالور:</b> ${p.membersCount || '-'}</div>`}
+                        <div style="margin-top: 8px;">${p.description || ''}</div>
+                    </div>
+                    <button class="btn btn-primary buy-btn">خرید محصول</button>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            const closePopup = () => {
+                overlay.classList.remove('active');
+                setTimeout(() => overlay.remove(), 300);
+            };
+
+            overlay.querySelector('.close-btn').addEventListener('click', closePopup);
+            overlay.querySelector('.buy-btn').addEventListener('click', () => {
+                closePopup();
+                openPaymentInfoPopup(p);
+            });
+        }
+
+        // پاپ‌آپ اطلاعات واریز و خرید
+        function openPaymentInfoPopup(p) {
+            const overlay = document.createElement('div');
+            overlay.className = 'popup-overlay active';
+            overlay.innerHTML = `
+                <div class="popup-content">
+                    <div class="popup-header">
+                        <span class="popup-title">اطلاعات واریز</span>
+                        <button class="close-btn">&times;</button>
+                    </div>
+                    <div style="font-size: 13px; color: #e2e8f0; line-height: 1.8; margin-bottom: 15px;">
+                        <div><b>شماره کارت:</b> <span style="letter-spacing:1px; color:#60a5fa;">${p.cardNumber || '-'}</span></div>
+                        <div><b>صاحب کارت:</b> ${p.cardName || '-'}</div>
+                        <div><b>آیدی روبیکا:</b> <span style="color:#4ade80;">${p.rubikaId || '-'}</span></div>
+                        <div style="margin-top: 10px; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 8px; font-size: 12px; color: #94a3b8;">
+                            بعد از واریز پول، رسید را به آیدی بالا در روبیکا بفرستید. برای اطلاعات بیشتر هم می‌توانید به آیدی روبیکا پیام بدهید.
+                        </div>
+                    </div>
+                    <button class="btn btn-primary send-receipt-btn">ارسال رسید به مدیر از طریق سایت</button>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            const closePopup = () => {
+                overlay.classList.remove('active');
+                setTimeout(() => overlay.remove(), 300);
+            };
+
+            overlay.querySelector('.close-btn').addEventListener('click', closePopup);
+            overlay.querySelector('.send-receipt-btn').addEventListener('click', () => {
+                closePopup();
+                if (!currentUser) {
+                    showCustomAlert('نیازمند ورود', 'ابتدا ثبت نام کنید یا وارد اکانت خود شوید.');
+                } else {
+                    window.location.href = 'chat.html';
+                }
+            });
+        }
+
+        // پاپ‌آپ ورود مدیر
+        function openAdminLoginPopup() {
+            const overlay = document.createElement('div');
+            overlay.className = 'popup-overlay active';
+            overlay.innerHTML = `
+                <div class="popup-content">
+                    <div class="popup-header">
+                        <span class="popup-title">ورود مدیریت</span>
+                        <button class="close-btn">&times;</button>
+                    </div>
+                    <form id="adminLoginForm">
+                        <div class="form-group">
+                            <label>نام کاربری مدیر</label>
+                            <input type="text" id="adminUser" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label>رمز عبور مدیر</label>
+                            <input type="password" id="adminPass" class="form-control" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">ورود به پنل</button>
+                    </form>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            const closePopup = () => {
+                overlay.classList.remove('active');
+                setTimeout(() => overlay.remove(), 300);
+            };
+
+            overlay.querySelector('.close-btn').addEventListener('click', closePopup);
+
+            overlay.querySelector('#adminLoginForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const u = document.getElementById('adminUser').value.trim().toLowerCase();
+                const p = document.getElementById('adminPass').value;
+
+                try {
+                    const res = await fetch(`${API_FIREBASE}/adminInfo/config`);
+                    let adminData = { username: 'admin', password: 'adminpassword' }; // اکانت پیش‌فرض اولیه
+
+                    if (res.status === 200) {
+                        const doc = await res.json();
+                        adminData = parseFirestoreDoc(doc);
+                    }
+
+                    if (u !== adminData.username.toLowerCase()) {
+                        return showCustomAlert('خطای ورود', 'نام کاربری مدیر اشتباه است.');
+                    }
+                    if (p !== adminData.password) {
+                        return showCustomAlert('خطای ورود', 'رمز عبور مدیر اشتباه است.');
+                    }
+
+                    sessionStorage.setItem('adminLoggedIn', 'true');
+                    closePopup();
+                    showCustomAlert('ورود موفق', 'خوش آمدید مدیر گرامی.', () => {
+                        window.location.href = 'modir.html';
+                    });
+                } catch (err) {
+                    showCustomAlert('خطا', 'مشکلی در برقراری ارتباط پیش آمد.');
+                }
+            });
+        }
+    </script>
+</body>
+</html>
